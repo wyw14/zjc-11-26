@@ -112,11 +112,6 @@
       <section v-if="activeTab === 'reports'" class="admin-content card">
         <div v-if="loadingReports" class="loading">正在加载...</div>
 
-        <div v-else-if="reports.length === 0" class="empty">
-          <div class="empty-icon">✅</div>
-          <p>暂无举报记录</p>
-        </div>
-
         <template v-else>
           <div class="filter-bar">
             <label class="filter-item">
@@ -127,7 +122,32 @@
               待处理 <strong>{{ pendingReportCount }}</strong> 条 / 共 <strong>{{ reports.length }}</strong> 条
             </span>
           </div>
-          <div class="report-list">
+
+          <div v-if="filteredReports.length === 0" class="empty">
+            <div v-if="reports.length === 0" class="empty-content">
+              <div class="empty-icon">✅</div>
+              <p class="empty-title">暂无举报记录</p>
+              <p class="empty-desc">所有内容都很健康，没有用户举报</p>
+            </div>
+            <div v-else-if="!filterHandled" class="empty-content">
+              <div class="empty-icon">🎉</div>
+              <p class="empty-title">太棒了！没有待处理的举报</p>
+              <p class="empty-desc">
+                所有举报均已处理，如需查看历史记录，
+                <a class="empty-link" @click="filterHandled = true">点击显示已处理</a>
+              </p>
+            </div>
+            <div v-else class="empty-content">
+              <div class="empty-icon">📭</div>
+              <p class="empty-title">没有符合条件的举报</p>
+              <p class="empty-desc">
+                试试
+                <a class="empty-link" @click="filterHandled = false">只看待处理</a>
+              </p>
+            </div>
+          </div>
+
+          <div v-else class="report-list">
             <div
               v-for="r in filteredReports"
               :key="r.id"
@@ -806,6 +826,50 @@ onMounted(async () => {
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: flex-end;
+}
+
+.empty {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+}
+
+.empty-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 4px;
+  opacity: 0.7;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.empty-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.6;
+}
+
+.empty-link {
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.empty-link:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 640px) {
