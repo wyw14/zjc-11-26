@@ -18,12 +18,17 @@
       <template v-else>
         <header class="story-header card">
           <div class="header-top">
-            <h1 class="story-title">{{ story.title }}</h1>
-            <span
-              :class="['tag', story.locked ? 'tag-success' : 'tag-warning']"
-            >
-              {{ story.locked ? '已完结' : '接龙中' }}
-            </span>
+            <div class="title-wrap">
+              <h1 class="story-title">{{ story.title }}</h1>
+              <span
+                :class="['tag', story.locked ? 'tag-success' : 'tag-warning']"
+              >
+                {{ story.locked ? '已完结' : '接龙中' }}
+              </span>
+            </div>
+            <button class="btn-danger btn-sm" @click="openReportStory()">
+              🚩 举报故事
+            </button>
           </div>
           <div v-if="story.locked && story.lockedReason" class="lock-reason">
             🔒 {{ story.lockedReason }}
@@ -87,6 +92,12 @@
                   <p>{{ entry.content }}</p>
                   <div class="bubble-footer">
                     <span class="char-count">{{ entry.content.length }} 字</span>
+                    <button
+                      class="report-entry-btn"
+                      @click.stop="openReportEntry(entry)"
+                    >
+                      🚩 举报
+                    </button>
                   </div>
                 </div>
               </div>
@@ -149,6 +160,72 @@
           </div>
         </section>
       </template>
+    </div>
+
+    <div
+      v-if="reportVisible"
+      class="modal-mask"
+      @click.self="reportVisible = false"
+    >
+      <div class="modal card report-modal">
+        <div class="modal-header danger">
+          <h3>🚩 {{ reportTargetType === 'story' ? '举报故事' : '举报接龙段落' }}</h3>
+          <button class="close-btn" @click="reportVisible = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="report-target-info">
+            <div v-if="reportTargetType === 'story'" class="target-line">
+              <span class="target-label">举报故事：</span>
+              <span class="target-name">{{ story?.title }}</span>
+            </div>
+            <div v-else class="target-line">
+              <span class="target-label">举报段落：</span>
+              <span class="target-name">第 {{ targetEntry?.order }} 棒 - {{ targetEntry?.author }}</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>举报原因 <span class="required">*</span></label>
+            <textarea
+              v-model="reportForm.reason"
+              placeholder="请简要描述举报原因（最多200字）..."
+              rows="4"
+              maxlength="200"
+            ></textarea>
+            <div class="hint-row">
+              <span>{{ reportForm.reason.length }} / 200 字</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>你的称呼（选填）</label>
+            <input
+              v-model="reportForm.reporter"
+              placeholder="可留空，默认为匿名用户"
+              maxlength="20"
+            />
+          </div>
+          <div v-if="reportError" class="error-text">{{ reportError }}</div>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn-secondary"
+            :disabled="reportSubmitting"
+            @click="reportVisible = false"
+          >
+            取消
+          </button>
+          <button
+            class="btn-danger"
+            :disabled="reportSubmitting || !reportForm.reason.trim()"
+            @click="submitReport"
+          >
+            {{ reportSubmitting ? '提交中...' : '确认举报' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="toast.show" :class="['toast', toast.type]">
+      {{ toast.message }}
     </div>
   </div>
 </template>
@@ -246,6 +323,55 @@ function scrollToBottom() {
 
 function scrollToTop() {
   window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const reportVisible = ref(false)
+const reportTargetType = ref('story')
+const targetEntry = ref(null)
+const reportForm = ref({ reason: '', reporter: '' })
+const reportSubmitting = ref(false)
+const reportError = ref('')
+const toast = ref({ show: false, message: '', type: 'success' })
+
+function showToast(message, type = 'success') {
+  toast.value = { show: true, message, type }
+  setTimeout(() => (toast.value.show = false), 2800)
+}
+
+function openReportStory() {
+  reportTargetType.value = 'story'
+  targetEntry.value = null
+  reportForm.value = { reason: '', reporter: '' }
+  reportError.value = ''
+  reportVisible.value = true
+}
+
+function openReportEntry(entry) {
+  reportTargetType.value = 'entry'
+  targetEntry.value = entry
+  reportForm.value = { reason: '', reporter: '' }
+  reportError.value = ''
+  reportVisible.value = true
+}
+
+async function submitReport() {
+  if (!reportForm.value.reason.trim()) return
+  reportSubmitting.value = true
+  reportError.value = ''
+  try {
+    await api.createReport({
+      storyId: story.value.id,
+      entryId: reportTargetType.value === 'entry' ? targetEntry.value?.id : undefined,
+      reason: reportForm.value.reason.trim(),
+      reporter: reportForm.value.reporter.trim()
+    })
+    reportVisible.value = false
+    showToast('举报提交成功，我们会尽快处理')
+  } catch (e) {
+    reportError.value = e.message
+  } finally {
+    reportSubmitting.value = false
+  }
 }
 
 watch(() => route.params.id, loadStory)
@@ -521,6 +647,169 @@ onMounted(loadStory)
   color: var(--primary);
 }
 
+.title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.report-entry-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 11px;
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: opacity 0.2s;
+}
+
+.report-entry-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.bubble-right .report-entry-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal {
+  width: 100%;
+  max-width: 460px;
+}
+
+.report-modal {
+  animation: zoomIn 0.2s ease;
+}
+
+@keyframes zoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.modal-header.danger h3 {
+  color: var(--error);
+}
+
+.modal-header h3 {
+  font-size: 18px;
+}
+
+.close-btn {
+  background: none;
+  font-size: 28px;
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+  border-radius: 50%;
+}
+
+.close-btn:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.modal-body {
+  padding-bottom: 8px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+
+.report-target-info {
+  background: var(--surface-alt);
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+}
+
+.target-line {
+  font-size: 14px;
+}
+
+.target-label {
+  color: var(--text-muted);
+}
+
+.target-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.required {
+  color: var(--error);
+}
+
+.toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 24px;
+  border-radius: var(--radius-sm);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 2000;
+  box-shadow: var(--shadow-lg);
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -20px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.toast.success {
+  background: var(--success);
+}
+
+.toast.error {
+  background: var(--error);
+}
+
 @media (max-width: 640px) {
   .story-stats {
     grid-template-columns: 1fr;
@@ -535,6 +824,10 @@ onMounted(loadStory)
   }
   .bubble-wrapper {
     max-width: calc(100% - 48px);
+  }
+  .header-top {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

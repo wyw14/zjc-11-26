@@ -5,15 +5,31 @@
         <div class="admin-header-inner">
           <div>
             <h1>🛠️ 故事管理中心</h1>
-            <p class="admin-subtitle">管理所有社区微小说，支持重置故事内容</p>
+            <p class="admin-subtitle">管理所有社区微小说，支持重置故事内容和处理用户举报</p>
           </div>
-          <button class="btn-secondary" @click="loadStories">
-            🔄 刷新列表
+          <button class="btn-secondary" @click="refreshCurrent">
+            🔄 刷新
           </button>
         </div>
       </header>
 
-      <section class="admin-content card">
+      <div class="tabs card">
+        <button
+          :class="['tab-btn', activeTab === 'stories' ? 'active' : '']"
+          @click="switchTab('stories')"
+        >
+          📚 故事管理
+        </button>
+        <button
+          :class="['tab-btn', activeTab === 'reports' ? 'active' : '']"
+          @click="switchTab('reports')"
+        >
+          🚩 举报列表
+          <span v-if="pendingReportCount > 0" class="tab-badge">{{ pendingReportCount }}</span>
+        </button>
+      </div>
+
+      <section v-if="activeTab === 'stories'" class="admin-content card">
         <div v-if="loading" class="loading">正在加载...</div>
 
         <div v-else-if="stories.length === 0" class="empty">
@@ -92,6 +108,70 @@
           </div>
         </template>
       </section>
+
+      <section v-if="activeTab === 'reports'" class="admin-content card">
+        <div v-if="loadingReports" class="loading">正在加载...</div>
+
+        <div v-else-if="reports.length === 0" class="empty">
+          <div class="empty-icon">✅</div>
+          <p>暂无举报记录</p>
+        </div>
+
+        <template v-else>
+          <div class="filter-bar">
+            <label class="filter-item">
+              <input type="checkbox" v-model="filterHandled" />
+              显示已处理
+            </label>
+            <span class="filter-tip">
+              待处理 <strong>{{ pendingReportCount }}</strong> 条 / 共 <strong>{{ reports.length }}</strong> 条
+            </span>
+          </div>
+          <div class="report-list">
+            <div
+              v-for="r in filteredReports"
+              :key="r.id"
+              :class="['report-item', r.handled ? 'handled' : 'pending']"
+            >
+              <div class="report-header">
+                <div class="report-type">
+                  <span v-if="r.entryId" class="type-tag type-entry">段落举报</span>
+                  <span v-else class="type-tag type-story">故事举报</span>
+                  <span :class="['status-tag', r.handled ? 'tag-success' : 'tag-warning']">
+                    {{ r.handled ? '已处理' : '待处理' }}
+                  </span>
+                </div>
+                <span class="report-time">{{ formatTime(r.createdAt) }}</span>
+              </div>
+              <div class="report-body">
+                <div class="report-target">
+                  <router-link :to="`/story/${r.storyId}`" class="story-link">
+                    📖 {{ r.storyTitle }}
+                  </router-link>
+                  <span v-if="r.entryOrder" class="entry-info">· 第 {{ r.entryOrder }} 棒</span>
+                </div>
+                <div class="report-reason">
+                  <span class="reason-label">举报原因：</span>
+                  <span class="reason-text">{{ r.reason }}</span>
+                </div>
+                <div class="report-meta">
+                  <span>举报人：{{ r.reporter }}</span>
+                  <span v-if="r.handledAt">处理时间：{{ formatTime(r.handledAt) }}</span>
+                </div>
+              </div>
+              <div v-if="!r.handled" class="report-actions">
+                <button
+                  class="btn-primary btn-sm"
+                  :disabled="handling === r.id"
+                  @click="handleReport(r.id)"
+                >
+                  {{ handling === r.id ? '处理中...' : '标记已处理' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </section>
     </div>
 
     <div
@@ -145,12 +225,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api.js'
 import { formatTime } from '../utils.js'
 
 const router = useRouter()
+const activeTab = ref('stories')
 const stories = ref([])
 const loading = ref(false)
 const resetting = ref(null)
@@ -158,7 +239,22 @@ const resetError = ref('')
 const confirmVisible = ref(false)
 const targetStory = ref(null)
 
+const reports = ref([])
+const loadingReports = ref(false)
+const handling = ref(null)
+const filterHandled = ref(false)
+
 const toast = ref({ show: false, message: '', type: 'success' })
+
+const pendingReportCount = computed(() =>
+  reports.value.filter(r => !r.handled).length
+)
+
+const filteredReports = computed(() =>
+  filterHandled.value
+    ? reports.value
+    : reports.value.filter(r => !r.handled)
+)
 
 function showToast(message, type = 'success') {
   toast.value = { show: true, message, type }
@@ -173,6 +269,32 @@ async function loadStories() {
     showToast('加载失败：' + e.message, 'error')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadReports() {
+  loadingReports.value = true
+  try {
+    reports.value = await api.getReports()
+  } catch (e) {
+    showToast('加载举报列表失败：' + e.message, 'error')
+  } finally {
+    loadingReports.value = false
+  }
+}
+
+function switchTab(tab) {
+  activeTab.value = tab
+  if (tab === 'reports') {
+    loadReports()
+  }
+}
+
+function refreshCurrent() {
+  if (activeTab.value === 'stories') {
+    loadStories()
+  } else {
+    loadReports()
   }
 }
 
@@ -202,7 +324,23 @@ async function doReset() {
   }
 }
 
-onMounted(loadStories)
+async function handleReport(reportId) {
+  handling.value = reportId
+  try {
+    await api.handleReport(reportId)
+    showToast('已标记为已处理')
+    await loadReports()
+  } catch (e) {
+    showToast('处理失败：' + e.message, 'error')
+  } finally {
+    handling.value = null
+  }
+}
+
+onMounted(async () => {
+  await loadStories()
+  await loadReports()
+})
 </script>
 
 <style scoped>
@@ -486,6 +624,190 @@ onMounted(loadStories)
   background: var(--error);
 }
 
+.tabs {
+  margin-bottom: 20px;
+  padding: 6px;
+  display: flex;
+  gap: 6px;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.tab-btn:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.tab-btn.active {
+  background: var(--primary);
+  color: white;
+}
+
+.tab-badge {
+  background: var(--error);
+  color: white;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.filter-tip {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.filter-tip strong {
+  color: var(--primary);
+  margin: 0 2px;
+}
+
+.report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.report-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.report-item.pending {
+  border-left: 3px solid var(--warning);
+}
+
+.report-item.handled {
+  border-left: 3px solid var(--success);
+  opacity: 0.75;
+}
+
+.report-item:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.report-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--surface-alt);
+}
+
+.report-type {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.type-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.type-story {
+  background: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+}
+
+.type-entry {
+  background: rgba(236, 72, 153, 0.15);
+  color: #ec4899;
+}
+
+.status-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.report-time {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.report-body {
+  padding: 14px;
+}
+
+.report-target {
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.entry-info {
+  color: var(--text-muted);
+  margin-left: 6px;
+  font-size: 13px;
+}
+
+.report-reason {
+  margin-bottom: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.reason-label {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.reason-text {
+  color: var(--text);
+}
+
+.report-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.report-actions {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+}
+
 @media (max-width: 640px) {
   .admin-header-inner {
     flex-direction: column;
@@ -493,6 +815,18 @@ onMounted(loadStories)
   }
   .confirm-info {
     padding: 12px 14px;
+  }
+  .tabs {
+    flex-direction: column;
+  }
+  .filter-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .report-meta {
+    flex-direction: column;
+    gap: 4px;
   }
 }
 </style>

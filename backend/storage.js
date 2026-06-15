@@ -19,15 +19,17 @@ function ensureDataDir() {
 function readData() {
   ensureDataDir();
   if (!fs.existsSync(DATA_FILE)) {
-    const initial = { stories: {} };
+    const initial = { stories: {}, reports: {} };
     fs.writeFileSync(DATA_FILE, JSON.stringify(initial, null, 2), 'utf-8');
     return initial;
   }
   const raw = fs.readFileSync(DATA_FILE, 'utf-8');
   try {
-    return JSON.parse(raw);
+    const data = JSON.parse(raw);
+    if (!data.reports) data.reports = {};
+    return data;
   } catch (e) {
-    return { stories: {} };
+    return { stories: {}, reports: {} };
   }
 }
 
@@ -179,6 +181,59 @@ export function resetStory(storyId) {
   updateStoryStatus(story);
   writeData(data);
   return { success: true, story: formatStoryDetail(story) };
+}
+
+export function createReport({ storyId, entryId, reason, reporter }) {
+  const data = readData();
+  if (!data.stories[storyId]) {
+    return { success: false, error: '故事不存在', code: 404 };
+  }
+  if (entryId) {
+    const entryExists = data.stories[storyId].entries.some(e => e.id === entryId);
+    if (!entryExists) {
+      return { success: false, error: '接龙段落不存在', code: 404 };
+    }
+  }
+  if (!reason || !reason.trim()) {
+    return { success: false, error: '举报原因不能为空', code: 400 };
+  }
+  if (reason.trim().length > 200) {
+    return { success: false, error: '举报原因不能超过 200 字', code: 400 };
+  }
+  const id = generateId();
+  const now = Date.now();
+  const report = {
+    id,
+    storyId,
+    storyTitle: data.stories[storyId].title,
+    entryId: entryId || null,
+    entryOrder: entryId ? (data.stories[storyId].entries.find(e => e.id === entryId)?.order || null) : null,
+    reason: reason.trim(),
+    reporter: (reporter && reporter.trim()) || '匿名用户',
+    createdAt: now,
+    handled: false,
+    handledAt: null
+  };
+  data.reports[id] = report;
+  writeData(data);
+  return { success: true, report };
+}
+
+export function getAllReports() {
+  const data = readData();
+  return Object.values(data.reports).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function markReportHandled(reportId) {
+  const data = readData();
+  const report = data.reports[reportId];
+  if (!report) {
+    return { success: false, error: '举报记录不存在', code: 404 };
+  }
+  report.handled = true;
+  report.handledAt = Date.now();
+  writeData(data);
+  return { success: true, report };
 }
 
 export { MAX_PARTICIPANTS, MAX_CHARS_PER_STORY };

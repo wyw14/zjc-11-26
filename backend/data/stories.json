@@ -38,5 +38,19 @@
       "locked": false,
       "lockedReason": null
     }
+  },
+  "reports": {
+    "mqeibjdoneirw9": {
+      "id": "mqeibjdoneirw9",
+      "storyId": "mqcyembfew83gs",
+      "storyTitle": "测试故事：星夜",
+      "entryId": null,
+      "entryOrder": null,
+      "reason": "内容涉及违规信息，建议处理",
+      "reporter": "匿名用户",
+      "createdAt": 1781485248732,
+      "handled": true,
+      "handledAt": 1781485283209
+    }
   }
 }

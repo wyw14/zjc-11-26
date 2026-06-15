@@ -6,6 +6,9 @@ import {
   getStoryById,
   addEntry,
   resetStory,
+  createReport,
+  getAllReports,
+  markReportHandled,
   MAX_PARTICIPANTS,
   MAX_CHARS_PER_STORY
 } from './storage.js';
@@ -108,6 +111,46 @@ app.post('/api/admin/stories/:id/reset', (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '重置故事失败' });
+  }
+});
+
+app.post('/api/reports', (req, res) => {
+  try {
+    const { storyId, entryId, reason, reporter } = req.body || {};
+    if (!storyId) {
+      return res.status(400).json({ error: '缺少故事ID' });
+    }
+    const result = createReport({ storyId, entryId, reason, reporter });
+    if (!result.success) {
+      return res.status(result.code || 400).json({ error: result.error });
+    }
+    res.status(201).json({ message: '举报提交成功', report: result.report });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '提交举报失败' });
+  }
+});
+
+app.get('/api/admin/reports', (_req, res) => {
+  try {
+    const reports = getAllReports();
+    res.json(reports);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取举报列表失败' });
+  }
+});
+
+app.post('/api/admin/reports/:id/handle', (req, res) => {
+  try {
+    const result = markReportHandled(req.params.id);
+    if (!result.success) {
+      return res.status(result.code || 400).json({ error: result.error });
+    }
+    res.json({ message: '已标记为已处理', report: result.report });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '处理举报失败' });
   }
 });
 
